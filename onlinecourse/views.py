@@ -1,7 +1,7 @@
 from django.shortcuts import render
 from django.http import HttpResponseRedirect
 # <HINT> Import any new Models here
-from .models import Course, Enrollment
+from .models import Course, Enrollment, Submission, Choice
 from django.contrib.auth.models import User
 from django.shortcuts import get_object_or_404, render, redirect
 from django.urls import reverse
@@ -123,14 +123,54 @@ def extract_answers(request):
            submitted_anwsers.append(choice_id)
    return submitted_anwsers
 
+def submit(request, course_id):
+    user = request.user
+    course = get_object_or_404(Course, pk=course_id)
+    enrollment = Enrollment.objects.get(user=user, course=course)
 
-# <HINT> Create an exam result view to check if learner passed exam and show their question results and result for each question,
-# you may implement it based on the following logic:
-        # Get course and submission based on their ids
-        # Get the selected choice ids from the submission record
-        # For each selected choice, check if it is a correct answer or not
-        # Calculate the total score
-#def show_exam_result(request, course_id, submission_id):
+    submission = Submission.objects.create(enrollment=enrollment)
 
+    answers = extract_answers(request)
+    for choice_id in answers:
+        choice = get_object_or_404(Choice, pk=choice_id)
+        submission.choices.add(choice)
+
+    return redirect('onlinecourse:show_exam_result', course_id=course.id, submission_id=submission.id)
+
+def show_exam_result(request, course_id, submission_id):
+    course = get_object_or_404(Course, pk=course_id)
+    submission = get_object_or_404(Submission, pk=submission_id)
+    selected_choices = submission.choices.all()
+
+    total_score = 0
+    max_score = 0
+    question_results = []
+
+    for question in course.question_set.all():
+        question_choices = question.choice_set.all()
+        selected_ids = selected_choices.filter(question=question).values_list('id', flat=True)
+        correct_ids = question_choices.filter(is_correct=True).values_list('id', flat=True)
+
+        is_correct = set(selected_ids) == set(correct_ids)
+        question_score = question.grade
+        if is_correct:
+            total_score += question_score
+
+        max_score += question_score
+        question_results.append({
+            'question': question,
+            'selected_ids': selected_ids,
+            'correct_ids': correct_ids,
+            'is_correct': is_correct,
+        })
+
+    context = {
+        'course': course,
+        'selected_ids': selected_choices.values_list('id', flat=True),
+        'grade': int((total_score / max_score) * 100),
+        'question_results': question_results
+    }
+
+    return render(request, 'onlinecourse/exam_result_bootstrap.html', context)
 
 
